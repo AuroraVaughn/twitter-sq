@@ -33,36 +33,93 @@ module.exports = function makeRouterWithSockets(io) {
     router.get('/tweets', respondWithAllTweets);
 
     // single-user page
+    //(SELECT id FROM USERS WHERE USER.NAME = req.params.username)
     router.get('/users/:username', function(req, res, next) {
-        var tweetsForName = tweetBank.find({ name: req.params.username });
-        res.render('index', {
-            title: 'Twitter.js',
-            tweets: tweetsForName,
-            showForm: true,
-            username: req.params.username
-        });
+        console.log(req.params.username);
+        client.query(`
+          SELECT * FROM tweets
+            WHERE tweets.user_id 
+            IN (
+              SELECT users.id 
+              FROM users 
+              WHERE users.name = $1
+            )`, [req.params.username],
+            function(err, result) {
+                if (err) return next(err); // pass errors to Express
+                var tweets = result.rows;
+                res.render('index', { title: 'Twitter.js', tweets: tweets, showForm: true });
+            });
+
+
+        // var tweetsForName = tweetBank.find({ name: req.params.username });
+        // res.render('index', {
+        //     title: 'Twitter.js',
+        //     tweets: tweetsForName,
+        //     showForm: true,
+        //     username: req.params.username
+        // });
     });
 
     // single-tweet page
     router.get('/tweets/:id', function(req, res, next) {
-        var tweetsWithThatId = tweetBank.find({ id: Number(req.params.id) });
-        res.render('index', {
-            title: 'Twitter.js',
-            tweets: tweetsWithThatId // an array of only one element ;-)
-        });
+        client.query(`
+      SELECT * FROM tweets
+        WHERE tweets.id = $1 
+        `, [Number(req.params.id)],
+            function(err, result) {
+                if (err) return next(err); // pass errors to Express
+                var tweets = result.rows;
+                res.render('index', { title: 'Twitter.js', tweets: tweets, showForm: true });
+            });
     });
 
     // create a new tweet
     router.post('/tweets', function(req, res, next) {
-        var newTweet = tweetBank.add(req.body.name, req.body.content);
-        io.sockets.emit('new_tweet', newTweet);
-        res.redirect('/');
+        console.log(req.body);
+        client.query('SELECT id FROM users WHERE name = $1', [req.body.name], function(err, result) {
+            console.log('query id from users done');
+            if (err) return next(err);
+            // either 1 row
+            console.log(result);
+            if (result.rowCount === 1) {
+                //result.fields[0].Field.name
+                client.query(`INSERT INTO tweets(user_id,content) VALUES ($1,$2)`, [result.rows[0].id, req.body.content], function(err, result) {
+                    console.log(result);
+                    if (err) return next(err);
+                    // client.query(`SELECT * FROM tweets WHERE`, function(err, result) {
+                    // });
+                    // io.sockets.emit('new_tweet', newTweet);
+                    res.redirect('/');
+                });
+            } else {
+                res.send('nothing yet')
+            }
+            console.log('end insert query') // no rows
+        });
+        console.log('end router.post')
+
     });
+
+
+    //   client.query(`
+    // INSERT INTO  tweets(user_id,content)
+    // VALUES ($1,$2)
+
+    //   `, [Number(req.params.id, req.params.content)],
+    //       function(err, result) {
+    //           if (err) return next(err); // pass errors to Express
+    //           var tweets = result.rows;
+    //           res.render('index', { title: 'Twitter.js', tweets: tweets, showForm: true });
+    //       });
+
+    // var newTweet = tweetBank.add(req.body.name, req.body.content);
+    // io.sockets.emit('new_tweet', newTweet);
+    // res.redirect('/');
+    // });
 
     // // replaced this hard-coded route with general static routing in app.js
     // router.get('/stylesheets/style.css', function(req, res, next){
     //   res.sendFile('/stylesheets/style.css', { root: __dirname + '/../public/' });
     // });
-
     return router;
 }
